@@ -1,0 +1,26 @@
+协议很简单
+
+基于消息，每条消息格式如下：
+
+客户端->服务器
+
+action\n
+extend1\n
+extend2\n
+...
+DATA\r\n
+
+action是一个单词，仅包含字母&数字，后面跟一个换行结束
+extendx 是用于拓展的行，自行定义其含义,
+
+通常，第一个拓展行是用户身份令牌token（服务器生成的一个UUID），n
+DATA是BASE64编码的数据，用base64解码后，可以得到json字符串，将json串解析可得到最终数据
+
+
+服务器->客户端
+
+ret_code\n
+DATA\r\n
+
+ret_code 一个单词，正常ok，异常别的
+DATAbase64编码的JSON串
