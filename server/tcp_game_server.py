@@ -11,6 +11,8 @@ from tornado import ioloop
 from tornado.netutil import TCPServer
 from tornado.autoreload import start as restarter
 import logging
+from hashlib import sha1
+from uuid import uuid4
 import utils
 import tank
 
@@ -33,7 +35,6 @@ class TCPGameServer(TCPServer):
 
     def handle_stream(self, stream, address):
         cli = GameConnection(address, stream, self)  # process the stream
-        logging.info("new conn : %r" % cli)
 
 
 class GameConnectionBase(object):
@@ -46,7 +47,7 @@ class GameConnectionBase(object):
         self.address = address
         self.stream = stream
         self.server = server
-        self.ret_code = None
+        self.ret_code = None  # return code
         logging.info("new connection, from :"+str(self.address))
         self.stream.read_until("\r\n", self.process_msg)
 
@@ -54,9 +55,8 @@ class GameConnectionBase(object):
     def process_msg(self, data):
         ''' when client write a \r\n , this method is called'''
         # debug logging
-        logging.info("data = %r" % data)
         msg = data.split()
-        logging.info("path = %r, data= %r", msg[0], msg[1])
+        logging.info("act = %r, data= %r", msg[0], msg[1])
 
         # handle msg
         act = msg[0]
@@ -73,11 +73,19 @@ class GameConnectionBase(object):
         else:
             # raise ActionNotDefined()
             # close connection
-            self.write("error\n\r\n")
-            self.close()
+            logging.error("no handler for act: %r" % act)
+            try:
+                self.write("error\n\r\n")
+            except IOError, e:
+                logging.error("%r" % e)
+            finally:
+                self.close()
 
         # next loop
         try:
+            if self.ret_code == 'end':  # close connection
+                self.close()
+                return
             self.ret_code = None
             self.stream.read_until("\r\n", self.process_msg)
         except IOError, e:
@@ -94,11 +102,25 @@ class GameConnectionBase(object):
 class GameConnection(GameConnectionBase):
     def __init__(self, address, stream, server):
         GameConnectionBase.__init__(self, address, stream, server)
+        self.user = None
+        self._token = ''
 
     def do_test(self, act, detail, extend):
         logging.info("TESTING: act=%r, detail= %r, extend= %r" % (act, detail,
                                                                   extend))
+        self.ret_code = 'end'
         return "testing\n\r\n"
+
+    def do_login(self, act, detail, extend):
+        logging.info("LOGIN: %s:%s" % (detail['username'], detail['pwd']))
+        real_user = 'debug'
+        real_pwd = sha1('debug').hexdigest()
+        if detail['username'] == real_user and detail['pwd'] == real_pwd:
+            self._token = str(uuid4())
+            return {"token": self._token}
+        else:
+            self.ret_code = 'wrong'
+            return ''
     def do_init(self, act, detail, extend):
         pass
 

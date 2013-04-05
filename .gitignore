@@ -1,3 +1,11 @@
+# my spec
+*.cpp
+*.h
+*.pro
+*.pro.user
+client/ai_client_ui-build-desktop-Desktop_Qt_4_8_1_for_GCC__Qt_SDK____/
+
+#
 *.py[cod]
 
 # C extensions
