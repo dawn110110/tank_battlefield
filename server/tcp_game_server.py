@@ -5,7 +5,7 @@ TCPGameServer
 '''
 
 import config
-import models
+from models import *
 import tornado
 from tornado import ioloop
 from tornado.netutil import TCPServer
@@ -13,8 +13,12 @@ from tornado.autoreload import start as restarter
 import logging
 from hashlib import sha1
 from uuid import uuid4
+import datetime
 import utils
 import tank
+
+class RegisterError(Exception):
+    pass
 
 
 class GameRoom(object):
@@ -56,7 +60,7 @@ class GameConnectionBase(object):
         ''' when client write a \r\n , this method is called'''
         # debug logging
         msg = data.split()
-        logging.info("act = %r, data= %r", msg[0], msg[1])
+#        logging.info("act = %r, data= %r", msg[0], msg[1])
 
         # handle msg
         act = msg[0]
@@ -67,9 +71,12 @@ class GameConnectionBase(object):
         if hasattr(self, method_name):
             method = getattr(self, method_name)
             ret_data = method(act, detail, extend)
+            print ret_data
             ret_code = self.ret_code or 'ok'
-            self.write(''.join([ret_code, '\n', utils.my_encode(ret_data),
-                                '\r\n']))
+            ret_str = ''.join(
+                [ret_code, '\n', utils.my_encode(ret_data), '\r\n'])
+            logging.info("ret_str = %r" % ret_str)
+            self.write(ret_str)
         else:
             # raise ActionNotDefined()
             # close connection
@@ -111,16 +118,58 @@ class GameConnection(GameConnectionBase):
         self.ret_code = 'end'
         return "testing\n\r\n"
 
+    def do_clear_db(self, act, detail, extend):
+        User.drop_table()
+        User.create_table()
+        Battle.drop_table()
+        Battle.create_table()
+        return {'hint': 'db cleared'}
+
+    def do_show_db(self, act, detail, extend):
+        us = [u.username for u in User.select()]
+        battles = Battle.select().count()
+        return {'users': us, 'battle': battles}
+
     def do_login(self, act, detail, extend):
         logging.info("LOGIN: %s:%s" % (detail['username'], detail['pwd']))
-        real_user = 'debug'
-        real_pwd = sha1('debug').hexdigest()
-        if detail['username'] == real_user and detail['pwd'] == real_pwd:
-            self._token = str(uuid4())
-            return {"token": self._token}
-        else:
+        u = User.select().where(User.username == detail['username'])
+        try:
+            u = list(u)[0]
+            if u.pwd == detail['pwd']:
+                self._token = str(uuid4())
+                return {"token": self._token}
+        except:
+            pass
+        self.ret_code = 'wrong'
+        return {'hint': 'username or passwd wrong'}
+
+    def do_regist(self, act, detail, extend):
+        logging.info("REGISTER : %r" % detail)
+        db.set_autocommit(False)
+        try:
+
+            with db.transaction():
+                exist = User.select().where(
+                    User.username == detail['username'])
+                if list(exist):
+                    logging.warn(
+                        "username: %r , already exist" % detail['username'])
+                    raise RegisterError("username already exist")
+                logging.info(
+                    "ok '%r' could be registered" % detail['username'])
+                today_now = datetime.datetime.now()
+                detail['pwd'] = sha1(detail['pwd']).hexdigest()  # sha1 pwd
+                detail['join_date'] = today_now
+                u = User(**detail)
+                u.save()
+            logging.info('save ok')
+            return {'hint': 'registration success'}
+        except Exception, e:
+            logging.error("%r" % e)
+            logging.info('save wrong')
             self.ret_code = 'wrong'
-            return ''
+            return {'hint': 'registration failed, username/email may be used'}
+
     def do_init(self, act, detail, extend):
         pass
 
